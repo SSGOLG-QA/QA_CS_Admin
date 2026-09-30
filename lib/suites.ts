@@ -118,4 +118,85 @@ export async function runNotice(app: Page) {
     const body = await app.locator('body').innerText();
     expect(/무기한/.test(body), '"무기한" 미표기').toBeFalsy();
   });
+
+  // ── 인터랙션 검증 (실측 셀렉터 기반, 비파괴) ──────────────────
+  const CARD = '[class*="list-item"]';
+
+  // NOTICE-12 솔루션 탭 필터 동작 — 탭 선택 시 필터 적용(URL ?sol=) + 활성 표시 + 목록 갱신
+  await check(app, M('공지사항 > 필터 동작', 'NOTICE-12', '솔루션 탭 선택 시 필터 동작', { failMsg: '탭 필터 미동작' }), async () => {
+    await gotoRoute(app, 'notice'); await settle(app, 1000);
+    const before = await app.locator(CARD).count();
+    await app.locator('.sol-tab', { hasText: '경기관제' }).first().click();
+    await settle(app, 1000);
+    await expect(app, 'URL 필터 파라미터(sol=)').toHaveURL(/[?&]sol=/);
+    await expect(app.locator('.sol-tab.on', { hasText: '경기관제' }).first(), '활성 탭 표시').toBeVisible({ timeout: 8_000 });
+    const after = await app.locator(CARD).count();
+    expect(after, `필터 후 목록(${after}) ≤ 전체(${before})`).toBeLessThanOrEqual(before);
+  });
+
+  // NOTICE-13 상세 진입 — 카드 클릭 시 /notice/{id} 이동 + 상세 제목(.nd-title)
+  const canDetail = (await app.locator(CARD).count().catch(() => 0)) > 0;
+  if (!canDetail) {
+    skip(M('공지사항 > 상세 진입', 'NOTICE-13', '공지 상세 진입', {}), '공지 카드 0건');
+  } else {
+    await check(app, M('공지사항 > 상세 진입', 'NOTICE-13', '카드 클릭 시 상세 진입', { failMsg: '상세 진입 실패' }), async () => {
+      await gotoRoute(app, 'notice'); await settle(app, 1000);
+      await app.locator(CARD).first().click();
+      await settle(app, 1200);
+      await expect(app, '상세 URL(/notice/{id})').toHaveURL(/\/notice\/\d+/);
+      await expect(app.locator('.nd-title').first(), '상세 제목').toBeVisible({ timeout: 8_000 });
+    });
+  }
+
+  // NOTICE-14 URL 자동 링크 — 본문 URL이 클릭 가능한 <a>로 렌더(시험 "URL 토큰" 공지)
+  //   ⚠ 목록으로 먼저 이동한 뒤 카드 존재를 센다(직전 검증이 상세/필터 상태를 남길 수 있음)
+  await gotoRoute(app, 'notice'); await settle(app, 1000);
+  const urlCard = app.locator(CARD, { hasText: 'URL 토큰' });
+  if ((await urlCard.count().catch(() => 0)) === 0) {
+    skip(M('공지사항 > URL 자동링크', 'NOTICE-14', '본문 URL 자동 링크', {}), 'URL 포함 시험 공지 없음');
+  } else {
+    await check(app, M('공지사항 > URL 자동링크', 'NOTICE-14', '본문 URL 클릭 가능 링크 렌더', { failMsg: 'URL 자동 링크 미렌더' }), async () => {
+      await urlCard.first().click();
+      await settle(app, 1200);
+      // 텍스트가 URL 형태인 앵커(헤더 'Smartscore Cloud 홈' 링크 제외)
+      const link = app.locator('a[href^="http"]').filter({ hasText: /https?:\/\// });
+      await expect(link.first(), '본문 URL 링크').toBeVisible({ timeout: 8_000 });
+    });
+  }
+
+  // NOTICE-15 이미지 라이트박스 — 본문 이미지 클릭 시 확대(조회 시점). 데이터 의존.
+  await gotoRoute(app, 'notice'); await settle(app, 800);
+  if ((await app.locator(CARD).count().catch(() => 0)) === 0) {
+    skip(M('공지사항 > 라이트박스', 'NOTICE-15', '본문 이미지 라이트박스', {}), '공지 카드 0건');
+  } else {
+    await app.locator(CARD).first().click().catch(() => {});
+    await settle(app, 1000);
+    const bodyImg = app.locator('.nd-body img, [class*="nd-"] img, [class*="content"] img, main img').first();
+    if (!(await bodyImg.isVisible().catch(() => false))) {
+      skip(M('공지사항 > 라이트박스', 'NOTICE-15', '본문 이미지 라이트박스', {}), '상세 본문 이미지 데이터 없음');
+    } else {
+      await check(app, M('공지사항 > 라이트박스', 'NOTICE-15', '본문 이미지 클릭 시 라이트박스', { failMsg: '라이트박스 미노출' }), async () => {
+        await bodyImg.click();
+        await app.waitForTimeout(700);
+        const overlay = app.locator('[class*="lightbox"], [class*="overlay"], [class*="modal"], [role="dialog"]');
+        await expect(overlay.first(), '라이트박스 오버레이').toBeVisible({ timeout: 5_000 });
+        await app.keyboard.press('Escape').catch(() => {});
+      });
+    }
+  }
+
+  // NOTICE-16 뒤로가기 — 상세에서 [공지사항 목록] 버튼(.pg-back-btn) → 목록 복귀
+  if (!canDetail) {
+    skip(M('공지사항 > 뒤로가기', 'NOTICE-16', '상세→목록 복귀', {}), '공지 카드 0건');
+  } else {
+    await check(app, M('공지사항 > 뒤로가기', 'NOTICE-16', '상세에서 목록으로 복귀', { failMsg: '목록 복귀 실패' }), async () => {
+      await gotoRoute(app, 'notice'); await settle(app, 1000);
+      await app.locator(CARD).first().click();
+      await settle(app, 1000);
+      await app.locator('.pg-back-btn').first().click();
+      await settle(app, 1000);
+      await expect(app, '목록 URL 복귀').toHaveURL(/\/notice(\?|$)/);
+      await expect(app.locator(CARD).first(), '목록 카드 재노출').toBeVisible({ timeout: 8_000 });
+    });
+  }
 }
