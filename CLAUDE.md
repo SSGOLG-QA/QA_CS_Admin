@@ -37,7 +37,8 @@ npm run test        # cs-admin 스위트 (작성 후)
 4. 2축: 기능 정상인데 기획과 다르면 AS-IS 검증(PASS)+`diff`. 데이터 의존은 `≥N`/`skip`.
 
 ## 제약
-- 자격증명은 자동화가 입력 안 함(사용자 수동 로그인). 공유 QA 계정 추정 → workers=1 직렬.
+- 자격증명은 자동화가 입력 안 함(사용자 수동 로그인). 공유 QA 계정 → workers=1 직렬.
+- ⚠️ **재로그인 1회당 1런만 생존**(2026-09-30 확인): `npm run auth` 후 유효한 테스트 실행은 사실상 1회. auth+첫 프로브(IA)까지는 살았으나 ~5분 뒤 2번째 프로브(screens)에서 전 라우트가 sv1td4/login으로 튕김. → **재인증 직후 필요한 실행을 한 번에** 몰아서 수행(여러 화면은 단일 test 순회로). [[session-one-run-per-login]]
 - `historyDb.ts`는 `node:sqlite`(Node 24+) 사용.
 
 ## 확정 규칙 요약

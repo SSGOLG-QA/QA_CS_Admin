@@ -52,12 +52,13 @@ export async function gotoRoute(app: Page, key: CsMenuKey): Promise<void> {
 export async function openApp(page: Page, _context: BrowserContext): Promise<Page> {
   await page.goto(BASE_URL + '/', { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
 
-  // 로그인 페이지로 튕기면(세션 만료) fail-fast
+  // 세션 만료 fail-fast: customer-success 도메인이 아니면(로그인/포털로 튕김) 즉시 중단.
+  //  ⚠ 공유 QA 계정은 재로그인 1회당 1런만 생존 — 죽은 세션으로 헛run 방지.
   const url = page.url();
-  if (/login|signin|auth|cloud\.smartscore/i.test(url) && !/customer-success/i.test(url)) {
+  if (!/customer-success/i.test(url) || /login|signin/i.test(url)) {
     throw new Error(
-      `[openApp] 세션 무효 — 로그인 페이지로 리다이렉트됨 (${url}). ` +
-      `\`npm run auth\` 로 재인증하세요.`,
+      `[openApp] 세션 무효 — CS 앱이 아닌 곳으로 리다이렉트됨 (${url}). ` +
+      `\`npm run auth\` 로 재인증 후 즉시 실행하세요(1런/로그인).`,
     );
   }
   await settle(page);
