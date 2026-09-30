@@ -56,9 +56,15 @@ export async function runNotice(app: Page) {
     await expect(app.locator('[class*="pagination"], [class*="paging"], .pager').first()).toBeVisible({ timeout: 8_000 });
   });
 
-  // NOTICE-05 언어 선택기(KOR) 노출
+  // NOTICE-05 언어 선택기(KOR) 노출 — 다중 매치 중 '가시' 요소 존재로 판정(숨은 첫 요소 오탐 방지)
   await check(app, M('공지사항 > 헤더', 'NOTICE-05', '언어 선택기(KOR) 노출', { failMsg: '언어 선택기 미노출' }), async () => {
-    await expect(app.getByText(/^KOR$/).first()).toBeVisible({ timeout: 8_000 });
+    const kor = app.getByText('KOR', { exact: true });
+    const n = await kor.count();
+    let visible = false;
+    for (let i = 0; i < n; i++) {
+      if (await kor.nth(i).isVisible().catch(() => false)) { visible = true; break; }
+    }
+    expect(visible, `KOR 언어 선택기 가시(matches=${n})`).toBeTruthy();
   });
 
   // NOTICE-06 고객 날짜 표기 — 날짜(YYYY.MM.DD) 노출 + "등록:"/"등록일" 라벨 미표기(policy_user)
