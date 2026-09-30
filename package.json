@@ -1,0 +1,26 @@
+{
+  "name": "qa-cs-admin",
+  "version": "0.1.0",
+  "description": "SMARTSCORE 고객성공(CS Admin) UI 검증 자동화 — 기획-구현 정합성 검토 (Playwright)",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "auth": "playwright test --project=setup --headed",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "probe:ia": "playwright test --project=cs-admin Admin/_probe-ia.spec.ts --no-deps --headed",
+    "test": "playwright test --project=cs-admin --no-deps",
+    "report": "playwright show-report"
+  },
+  "keywords": ["playwright", "qa", "smartscore", "cs-admin"],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^25.9.3",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0"
+  }
+}

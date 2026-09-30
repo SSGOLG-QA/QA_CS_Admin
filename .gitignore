@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Auth / secrets (로그인 세션·쿠키 — 절대 커밋 금지)
+auth/.auth/
+auth/**/*.json
+*.env
+.env*
+!.env.example
+
+# Playwright 산출물
+playwright-report/
+test-results/
+reports/
+blob-report/
+playwright/.cache/
+
+# 분석 원시 덤프 (기계가독, 일회성)
+analysis/
+
+# 빌드 산출물
+dist/
+
+# 진단 프로브(일회성 덤프, 커밋 제외)
+Admin/_probe-*.spec.ts
+
+# OS / 에디터
+.DS_Store
+Thumbs.db
+*.log
+
+# Claude Code 로컬 설정
+.claude/

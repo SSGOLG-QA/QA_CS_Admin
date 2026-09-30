@@ -1,0 +1,12 @@
+{
+  // 타입검증 전용 — emit 없음. 핵심 자동화 코드(lib/Admin/auth)를 전수 type-check.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true },
+  "include": [
+    "lib/**/*.ts",
+    "Admin/**/*.ts",
+    "auth/**/*.ts",
+    "playwright.config.ts"
+  ],
+  "exclude": ["node_modules", "dist", "Admin/_*.spec.ts"]
+}
