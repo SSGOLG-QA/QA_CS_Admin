@@ -33,6 +33,14 @@ export async function runNotice(app: Page) {
     await expect(app.getByText(/SMARTSCORE\s*공지사항/).first()).toBeVisible({ timeout: 10_000 });
   });
 
+  // NOTICE-10 안내 문구 전문 일치 (checkText)
+  const NOTICE_GUIDE = '솔루션 업데이트, 점검, 정책 변경 등 중요 안내를 확인하세요';
+  await checkText(
+    app,
+    M('공지사항 > 안내문구', 'NOTICE-10', '상단 안내 문구 전문 일치', { expected: NOTICE_GUIDE, failMsg: '안내 문구 불일치/미노출' }),
+    app.getByText(NOTICE_GUIDE, { exact: true }),
+  );
+
   // NOTICE-02 솔루션 필터 탭 — 전체 + 11솔루션(12) 노출
   await check(app, M('공지사항 > 솔루션 필터', 'NOTICE-02', '솔루션 필터 탭 12종(전체+11) 노출', { failMsg: '솔루션 필터 탭 누락' }), async () => {
     for (const label of SOLUTIONS_IMPL) {
@@ -48,6 +56,26 @@ export async function runNotice(app: Page) {
   } else {
     await check(app, M('공지사항 > 목록', 'NOTICE-03', '공지 목록 카드 ≥1 노출', { failMsg: '공지 목록 미노출' }), async () => {
       expect(cardCount).toBeGreaterThanOrEqual(1);
+    });
+  }
+
+  // NOTICE-11 카드별 카테고리(솔루션) 배지 노출 — 각 공지 카드는 좌측에 카테고리 배지("전체" 또는 솔루션명)
+  const catRe = new RegExp('^(' + SOLUTIONS_IMPL.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b');
+  const dateCardSel = 'a,button,li,[class*="notice"],[class*="card"]';
+  const dateCards = app.locator(dateCardSel).filter({ hasText: /\d{4}\.\d{2}\.\d{2}/ });
+  const dcN = await dateCards.count().catch(() => 0);
+  if (dcN === 0) {
+    skip(M('공지사항 > 카테고리 배지', 'NOTICE-11', '카드 카테고리(솔루션) 배지 노출', {}), '공지 카드 0건');
+  } else {
+    await check(app, M('공지사항 > 카테고리 배지', 'NOTICE-11', '카드별 카테고리(솔루션) 배지 노출', { failMsg: '카드 카테고리 배지 미노출/비정상' }), async () => {
+      let ok = 0, checked = 0;
+      for (let i = 0; i < Math.min(dcN, 5); i++) {
+        const t = (await dateCards.nth(i).innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+        if (!t) continue;
+        checked++;
+        if (catRe.test(t)) ok++;
+      }
+      expect(ok, `카테고리 배지 선두 카드 ${ok}/${checked}`).toBeGreaterThanOrEqual(1);
     });
   }
 
