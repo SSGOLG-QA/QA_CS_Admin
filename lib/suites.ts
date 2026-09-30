@@ -60,8 +60,10 @@ export async function runNotice(app: Page) {
   }
 
   // NOTICE-11 카드별 카테고리(솔루션) 배지 노출 — 각 공지 카드는 좌측에 카테고리 배지("전체" 또는 솔루션명)
-  const catRe = new RegExp('^(' + SOLUTIONS_IMPL.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b');
-  const dateCardSel = 'a,button,li,[class*="notice"],[class*="card"]';
+  // ⚠ 한글은 JS 정규식 \w가 아니라 \b(단어경계)가 한글 뒤에서 실패 → 선두 토큰을 공백 분리 후 집합 비교.
+  const catSet = new Set(SOLUTIONS_IMPL);
+  // 실측: 공지 카드 = div[class*="list-item"] (텍스트 "카테고리 제목 날짜" 순)
+  const dateCardSel = '[class*="list-item"], [class*="notice-item"]';
   const dateCards = app.locator(dateCardSel).filter({ hasText: /\d{4}\.\d{2}\.\d{2}/ });
   const dcN = await dateCards.count().catch(() => 0);
   if (dcN === 0) {
@@ -73,7 +75,7 @@ export async function runNotice(app: Page) {
         const t = (await dateCards.nth(i).innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
         if (!t) continue;
         checked++;
-        if (catRe.test(t)) ok++;
+        if (catSet.has(t.split(' ')[0])) ok++;   // 선두 토큰이 카테고리(솔루션)인지
       }
       expect(ok, `카테고리 배지 선두 카드 ${ok}/${checked}`).toBeGreaterThanOrEqual(1);
     });
