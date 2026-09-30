@@ -17,14 +17,18 @@ npm run test        # cs-admin 스위트 (작성 후)
 ```
 
 ## 현재 상태 (2026-09-30)
-- ✅ **Phase 0 세팅 완료**: playwright.config·auth.setup·lib(reporter/reportHtml/historyDb 이식 + csHelpers 신규)·docs·probe.
-- ⬜ **Phase 1 (다음)**: `npm run auth` → `npm run probe:ia` → 실 DOM 기준으로 **csHelpers 보정**(SIDEBAR_LINK·CS_MENU·openApp 판정, auth.setup 로그인 URL/판정).
-- ⬜ Phase 2 화면별 스위트 / Phase 3 admin↔cs 차등 / Phase 4 리포트. (계획: `_docs/정합성검토_계획.md`)
+- ✅ **Phase 0 세팅 완료**: playwright.config·auth.setup·lib(reporter/reportHtml/historyDb 이식 + csHelpers)·docs·probe.
+- ✅ **Phase 1 접근·IA 실측 완료**: `npm run auth`(클라우드 로그인 우선, SSO로 CS 자동 진입) 성공 → `npm run probe:ia` 덤프.
+  - **핵심 발견**: 라이브 사이트 = **고객(Customer) CS 화면**(= cs.html 실구현, 기준 = `policy_user.md`). 운영자 admin 아님. → `_docs/IA_실측결과.md`
+  - csHelpers 실측 보정 완료(`CS_ROUTE`/`CS_NAV_LABEL`/`gotoRoute`/`SIDEBAR_LINK=.nav-item`).
+- ⬜ **Phase 2 (다음)**: 고객 화면별 정합성 스위트(공지→업데이트→가이드→FAQ→문의). policy_user.md 기준.
+- ⬜ Phase 3 admin↔cs 차등(운영자 화면 스코프 확인 필요) / Phase 4 리포트. (계획: `_docs/정합성검토_계획.md`)
 
-## ⚠️ 미보정(실측 필요) — 프로토타입 기준 초안
-- `lib/csHelpers.ts`: `SIDEBAR_LINK`(사이드바 셀렉터), `CS_MENU`(메뉴 라벨), `openApp` 세션판정.
-- `auth/auth.setup.ts`: 로그인 URL·성공 판정 셀렉터(현재 URL 도달 기반 보수적 판정).
-- 위는 실제 사이트 DOM을 몰라 프로토타입(`gwon-plan/cs-admin` HTML) IA 기준으로 작성. **probe:ia 후 반드시 보정.**
+## 실측 확정 (2026-09-30) — `_docs/IA_실측결과.md`
+- 라이브 = 고객 CS 화면. Vue SPA, GNB=.nav-item, 라우트 직접이동 가능.
+- 라우트: `/ /notice /update /guide /faq /myinquiry /gcinquiry (/newinquiry)`.
+- 공지 솔루션 탭 12개(전체+11). ⚠ 실구현 "무전기" vs 정책 "무전"(diff 후보). QA 시험 데이터("(시험)…") 시드 존재.
+- 운영자 admin 화면은 별도 경로(cc.smartscore.kr/ss/mng 추정) — **스코프 확인 요망**.
 
 ## 컨벤션 (경기관제 승계)
 1. 리포터: `check`/`checkText`(안내문구 전문 일치)/`diff`(기획-구현 차이)/`skip`(사유). 실패해도 계속(전수).

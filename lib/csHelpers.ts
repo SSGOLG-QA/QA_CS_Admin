@@ -1,11 +1,12 @@
 import { Page, BrowserContext, expect } from '@playwright/test';
 
 // ──────────────────────────────────────────────────────────────
-//  CS Admin (SMARTSCORE 고객성공) 공통 진입·네비게이션 헬퍼
+//  CS (SMARTSCORE 고객성공 — 고객 화면) 공통 진입·네비게이션 헬퍼
 //
 //  대상: https://customer-success-td.smartscore.kr  (클라우드 로그인 필요)
-//  ⚠️ 실제 구현 사이트의 DOM 구조는 최초 로그인 후 프로브(_probe-ia.spec.ts)로
-//     실측한 뒤 아래 셀렉터/메뉴 매핑을 보정해야 한다(현재 값은 프로토타입 IA 기준 초안).
+//  ✅ 2026-09-30 IA 실측 확정(_probe-ia.spec.ts): 이 사이트는 **고객(Customer) CS 화면**
+//     (= smartscore_cs.html 실구현, 기준 정책 = policy_user.md). 운영자(admin)가 아님.
+//     Vue SPA · GNB = .nav-item(router-link) · 라우트 직접 이동 가능.
 //  참조: 경기관제 하네스(lib/adminHelpers.ts) 패턴 재사용.
 // ──────────────────────────────────────────────────────────────
 
@@ -14,33 +15,35 @@ export const BASE_URL = `https://${SUBDOMAIN}.smartscore.kr`;
 
 const norm = (s: string) => (s || '').replace(/\s+/g, '');
 
-// ── IA 메뉴 매핑 (프로토타입 smartscore_admin_v0.3.html 기준 초안) ──────
-//   실측 후 보정 대상. showAdmin(this,'<key>') 의 라벨 → 사이드바 텍스트.
-export const CS_MENU = {
-  dashboard: '대시보드',
+// ── 고객 화면 GNB 라우트 (2026-09-30 실측 확정) ──────────────────
+export const CS_ROUTE = {
+  home: '/',
+  notice: '/notice',
+  update: '/update',
+  guide: '/guide',
+  faq: '/faq',
+  myinquiry: '/myinquiry',
+  gcinquiry: '/gcinquiry',
+  newinquiry: '/newinquiry',   // 새 문의 접수(GNB 아님, 버튼 진입)
+} as const;
+export type CsMenuKey = keyof typeof CS_ROUTE;
+
+// GNB에 노출되는 메뉴 라벨(실측). newinquiry는 GNB에 없음(홈/문의의 버튼으로 진입).
+export const CS_NAV_LABEL: Partial<Record<CsMenuKey, string>> = {
+  home: '홈',
   notice: '공지사항',
   update: '업데이트',
   guide: '솔루션 가이드',
   faq: '자주 묻는 질문',
-  quicktags: '빠른 검색 태그',
-  inquiry: '문의',           // "문의 / 답변"
-  members: '관리자 계정',
-  countries: '국가',          // "국가 / 골프장"
-} as const;
-export type CsMenuKey = keyof typeof CS_MENU;
-
-// 대메뉴 그룹(사이드바 섹션) — 리포트 탭 분류용
-export const CS_MENU_GROUP: Record<CsMenuKey, string> = {
-  dashboard: '대시보드',
-  notice: '콘텐츠 관리',
-  update: '콘텐츠 관리',
-  guide: '콘텐츠 관리',
-  faq: '콘텐츠 관리',
-  quicktags: '콘텐츠 관리',
-  inquiry: '문의 관리',
-  members: '설정',
-  countries: '설정',
+  myinquiry: '내 문의',
+  gcinquiry: '골프장 문의',
 };
+
+// 라우트로 직접 이동(Vue SPA — 클릭보다 견고). 진입 후 settle.
+export async function gotoRoute(app: Page, key: CsMenuKey): Promise<void> {
+  await app.goto(BASE_URL + CS_ROUTE[key], { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
+  await settle(app);
+}
 
 // ──────────────────────────────────────────────────────────────
 //  앱 진입 — storageState(로그인 세션) 재사용 전제.
@@ -62,11 +65,11 @@ export async function openApp(page: Page, _context: BrowserContext): Promise<Pag
 }
 
 // ──────────────────────────────────────────────────────────────
-//  사이드바 메뉴 네비게이션 (텍스트 기반, DOM click 으로 SPA 라우팅 보장)
-//  parent = 사이드바 섹션명(선택), child = 메뉴명. 공백 무시 매칭.
-//  ⚠ 실측 후 사이드바 셀렉터(SIDEBAR_LINK) 보정 필요.
+//  GNB 메뉴 네비게이션 (텍스트 기반 클릭, DOM click 으로 SPA 라우팅 보장)
+//  parent(=라벨) 또는 child 로 매칭. 공백 무시. (라우트 직접이동은 gotoRoute 권장)
+//  2026-09-30 실측: GNB = .nav-item(router-link).
 // ──────────────────────────────────────────────────────────────
-const SIDEBAR_LINK = 'aside a, aside [onclick], nav a, nav [onclick], .sidebar a, .sb-item';
+const SIDEBAR_LINK = 'nav .nav-item, .nav-item, nav a, aside a';
 
 export async function navigateMenu(app: Page, parent: string, child?: string): Promise<boolean> {
   const target = (child || parent).trim();
@@ -88,9 +91,15 @@ export async function navigateMenu(app: Page, parent: string, child?: string): P
   return false;
 }
 
-// 편의: 메뉴 키로 이동
+// 편의: 메뉴 키로 이동(GNB 클릭). GNB에 없는 키(newinquiry)는 라우트 직접이동으로 폴백.
 export async function gotoCsMenu(app: Page, key: CsMenuKey): Promise<boolean> {
-  return navigateMenu(app, CS_MENU_GROUP[key], CS_MENU[key]);
+  const label = CS_NAV_LABEL[key];
+  if (label) {
+    const ok = await navigateMenu(app, label);
+    if (ok) return true;
+  }
+  await gotoRoute(app, key);
+  return true;
 }
 
 // SPA 컨텐츠 렌더 안정화
