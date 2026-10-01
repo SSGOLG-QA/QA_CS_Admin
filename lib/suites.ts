@@ -200,3 +200,145 @@ export async function runNotice(app: Page) {
     });
   }
 }
+
+// ──────────────────────────────────────────────────────────────
+//  업데이트 (/update) — 고객 노출 정합성 (policy_user "업데이트 공개 정책")
+//  2026-10-01 실측: 카드 [class*="update-item"], 상세 .ud-title, 뒤로 "업데이트 목록",
+//    탭 .sol-tab(.on), 필터 ?sol=N, 상태텍스트 미노출(반영완료만 노출), 더보기 10+10.
+// ──────────────────────────────────────────────────────────────
+const MU = (path: string, tcId: string, desc: string, extra: Partial<CheckMeta> = {}): CheckMeta => ({
+  path, tcId, desc,
+  tcRef: extra.tcRef || `업데이트_고객노출_${tcId.replace(/\D/g, '')}`,
+  expected: extra.expected, failMsg: extra.failMsg,
+});
+
+export async function runUpdate(app: Page) {
+  const MENU = '업데이트';
+  const CARD = '[class*="update-item"]';
+  await gotoRoute(app, 'update');
+  await settle(app);
+
+  // UPDATE-01 진입 + 화면 제목 "릴리즈 노트"
+  await check(app, MU('업데이트 > 진입', 'UPDATE-01', '업데이트 화면 제목 노출', { failMsg: '업데이트 제목 미노출' }), async () => {
+    await expect(app.getByText('릴리즈 노트', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  // UPDATE-02 솔루션 필터 탭 12종
+  await check(app, MU('업데이트 > 솔루션 필터', 'UPDATE-02', '솔루션 필터 탭 12종(전체+11) 노출', { failMsg: '솔루션 필터 탭 누락' }), async () => {
+    for (const label of SOLUTIONS_IMPL) {
+      await expect(app.getByText(label, { exact: true }).first(), `필터 "${label}"`).toBeVisible({ timeout: 8_000 });
+    }
+  });
+
+  // UPDATE-03 목록 카드 ≥1 (데이터 의존)
+  const n0 = await app.locator(CARD).count().catch(() => 0);
+  if (n0 === 0) {
+    skip(MU('업데이트 > 목록', 'UPDATE-03', '업데이트 목록 카드 노출', {}), '업데이트 데이터 0건');
+  } else {
+    await check(app, MU('업데이트 > 목록', 'UPDATE-03', '업데이트 목록 카드 ≥1 노출', { failMsg: '업데이트 목록 미노출' }), async () => {
+      expect(n0).toBeGreaterThanOrEqual(1);
+    });
+  }
+
+  // UPDATE-04 [핵심 차등] 상태 텍스트 숨김 — "반영완료"/"반영대기" 미노출(고객 화면)
+  await check(app, MU('업데이트 > 상태 텍스트', 'UPDATE-04', '반영완료/반영대기 상태 텍스트 미노출', { failMsg: '상태 텍스트 노출(고객 화면 규칙 위반)' }), async () => {
+    const body = await app.locator('body').innerText();
+    expect(/반영완료|반영대기/.test(body), '상태 텍스트 미노출').toBeFalsy();
+  });
+
+  // UPDATE-05 더보기 버튼 노출 + 동작(클릭 시 목록 증가)
+  const more = app.getByRole('button', { name: /더보기/ }).or(app.getByText('더보기', { exact: true }));
+  if (!(await more.first().isVisible().catch(() => false))) {
+    skip(MU('업데이트 > 더보기', 'UPDATE-05', '더보기 버튼 노출·동작', {}), '더보기 버튼 미노출(항목 ≤10)');
+  } else {
+    await check(app, MU('업데이트 > 더보기', 'UPDATE-05', '더보기 클릭 시 목록 추가 노출', { failMsg: '더보기 미동작' }), async () => {
+      const before = await app.locator(CARD).count();
+      await more.first().click();
+      await settle(app, 1200);
+      const after = await app.locator(CARD).count();
+      expect(after, `더보기 후(${after}) > 이전(${before})`).toBeGreaterThan(before);
+    });
+  }
+
+  // UPDATE-06 복수 솔루션 배지 — 카드에 솔루션 배지(≥1), 일부 카드는 복수
+  if (n0 === 0) {
+    skip(MU('업데이트 > 솔루션 배지', 'UPDATE-06', '카드 솔루션 배지 노출', {}), '업데이트 데이터 0건');
+  } else {
+    await check(app, MU('업데이트 > 솔루션 배지', 'UPDATE-06', '카드별 솔루션 배지 노출', { failMsg: '솔루션 배지 미노출' }), async () => {
+      const sols = SOLUTIONS_IMPL.filter(s => s !== '전체');
+      let ok = 0;
+      const cnt = Math.min(await app.locator(CARD).count(), 5);
+      for (let i = 0; i < cnt; i++) {
+        const t = (await app.locator(CARD).nth(i).innerText().catch(() => '')).replace(/\s+/g, ' ');
+        if (sols.some(s => t.includes(s))) ok++;
+      }
+      expect(ok, `솔루션 배지 보유 카드 ${ok}/${cnt}`).toBeGreaterThanOrEqual(1);
+    });
+  }
+
+  // UPDATE-07 날짜 표기 — YYYY.MM.DD 노출 + "등록:" 라벨 미표기(고객 화면)
+  await check(app, MU('업데이트 > 날짜 표기', 'UPDATE-07', '고객 날짜 표기: 날짜만(라벨 없음)', { failMsg: '날짜 표기 규칙 위반' }), async () => {
+    const body = await app.locator('body').innerText();
+    expect(/\d{4}\.\d{2}\.\d{2}/.test(body), '날짜(YYYY.MM.DD) 노출').toBeTruthy();
+    expect(/등록\s*:|등록일\s*:/.test(body), '"등록:" 라벨 미표기').toBeFalsy();
+  });
+
+  // UPDATE-08 언어 선택기(KOR)
+  await check(app, MU('업데이트 > 헤더', 'UPDATE-08', '언어 선택기(KOR) 노출', { failMsg: '언어 선택기 미노출' }), async () => {
+    const kor = app.getByText('KOR', { exact: true });
+    const c = await kor.count();
+    let vis = false;
+    for (let i = 0; i < c; i++) { if (await kor.nth(i).isVisible().catch(() => false)) { vis = true; break; } }
+    expect(vis, `KOR 가시(matches=${c})`).toBeTruthy();
+  });
+
+  // UPDATE-09 미가공 코드/오타 미노출
+  await checkRawCode(app, MU('업데이트 > 본문', 'UPDATE-09', '미가공 코드/오타 미노출', {}));
+
+  // UPDATE-10 [diff] 솔루션명 무전→무전기
+  if (await app.getByText('무전기', { exact: true }).first().isVisible().catch(() => false)) {
+    diff(MENU, '솔루션명 "무전"(정책/tag_pool)', '"무전기"(구현)', '업데이트_고객노출_10', '기능 정상 — 명칭 표기 차이. 전 화면 공통');
+  }
+
+  // ── 인터랙션 ──────────────────────────────────────────────
+  // UPDATE-11 솔루션 탭 필터 동작
+  await check(app, MU('업데이트 > 필터 동작', 'UPDATE-11', '솔루션 탭 선택 시 필터 동작', { failMsg: '탭 필터 미동작' }), async () => {
+    await gotoRoute(app, 'update'); await settle(app, 1000);
+    const before = await app.locator(CARD).count();
+    await app.locator('.sol-tab', { hasText: '경기관제' }).first().click();
+    await settle(app, 1000);
+    await expect(app, 'URL 필터(sol=)').toHaveURL(/[?&]sol=/);
+    await expect(app.locator('.sol-tab.on', { hasText: '경기관제' }).first(), '활성 탭').toBeVisible({ timeout: 8_000 });
+    const after = await app.locator(CARD).count();
+    expect(after, `필터 후(${after}) ≤ 전체(${before})`).toBeLessThanOrEqual(before);
+  });
+
+  // UPDATE-12 상세 진입 (/update/{id} + .ud-title)
+  const canDetail = (await (async () => { await gotoRoute(app, 'update'); await settle(app, 800); return app.locator(CARD).count().catch(() => 0); })()) > 0;
+  if (!canDetail) {
+    skip(MU('업데이트 > 상세 진입', 'UPDATE-12', '업데이트 상세 진입', {}), '업데이트 카드 0건');
+  } else {
+    await check(app, MU('업데이트 > 상세 진입', 'UPDATE-12', '카드 클릭 시 상세 진입', { failMsg: '상세 진입 실패' }), async () => {
+      await gotoRoute(app, 'update'); await settle(app, 1000);
+      await app.locator(CARD).first().click();
+      await settle(app, 1200);
+      await expect(app, '상세 URL(/update/{id})').toHaveURL(/\/update\/\d+/);
+      await expect(app.locator('.ud-title').first(), '상세 제목').toBeVisible({ timeout: 8_000 });
+    });
+
+    // UPDATE-13 상세 상태 텍스트 숨김
+    await check(app, MU('업데이트 > 상세 상태', 'UPDATE-13', '상세 상태 텍스트(반영완료 등) 미노출', { failMsg: '상세 상태 텍스트 노출' }), async () => {
+      const body = await app.locator('body').innerText();
+      expect(/반영완료|반영대기/.test(body), '상세 상태 텍스트 미노출').toBeFalsy();
+    });
+
+    // UPDATE-14 뒤로가기 → 목록 복귀
+    await check(app, MU('업데이트 > 뒤로가기', 'UPDATE-14', '상세에서 목록으로 복귀', { failMsg: '목록 복귀 실패' }), async () => {
+      const back = app.locator('.pg-back-btn').or(app.getByText('업데이트 목록', { exact: true }));
+      await back.first().click();
+      await settle(app, 1000);
+      await expect(app, '목록 URL 복귀').toHaveURL(/\/update(\?|$)/);
+      await expect(app.locator(CARD).first(), '목록 카드 재노출').toBeVisible({ timeout: 8_000 });
+    });
+  }
+}
