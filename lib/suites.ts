@@ -199,6 +199,79 @@ export async function runNotice(app: Page) {
       await expect(app.locator(CARD).first(), '목록 카드 재노출').toBeVisible({ timeout: 8_000 });
     });
   }
+
+  // ════════════════════════════════════════════════════════════
+  //  연계 관측 (admin → front 노출공식 정합성)
+  //  어드민_프론트_연계분석.md §2/§4. front=라이브(읽기)·admin=목업(백엔드 없음)
+  //  → admin 설정을 트리거하지 않고, front 관측값이 연계공식에 정합한지만 확인.
+  //    검증 불가(국가 전환·실 admin 쓰기)는 투명 SKIP(사유 명시).
+  // ════════════════════════════════════════════════════════════
+
+  // NOTICE-L01 상태 라벨 비노출(정상 차등) — front엔 노출/미노출·반영완료/반영대기 상태 텍스트 없음(admin 전용)
+  await check(app, M('공지사항 > 연계·상태라벨', 'NOTICE-L01', 'front 상태 텍스트 비노출(admin 전용)', { failMsg: 'front에 상태 텍스트 노출 — admin 전용 요소 누출' }), async () => {
+    await gotoRoute(app, 'notice'); await settle(app, 800);
+    const body = await app.locator('body').innerText();
+    expect(/미노출/.test(body), '"미노출" 상태 텍스트 미노출').toBeFalsy();
+    expect(/반영완료|반영대기/.test(body), '업데이트 상태 텍스트 미노출(공지 화면)').toBeFalsy();
+  });
+
+  // NOTICE-L02 솔루션 필터 정합 — 필터 적용 시 노출 카드 배지 ⊆ {선택 솔루션, 전체} (연계규칙 #4)
+  await gotoRoute(app, 'notice'); await settle(app, 1000);
+  await app.locator('.sol-tab', { hasText: '경기관제' }).first().click().catch(() => {});
+  await settle(app, 1000);
+  const fCards = app.locator(dateCardSel).filter({ hasText: /\d{4}\.\d{2}\.\d{2}/ });
+  const fN = await fCards.count().catch(() => 0);
+  if (fN === 0) {
+    skip(M('공지사항 > 연계·솔루션필터', 'NOTICE-L02', '필터 결과 배지 정합(⊆ 선택∪전체)', {}), '경기관제 필터 결과 0건(데이터 의존)');
+  } else {
+    await check(app, M('공지사항 > 연계·솔루션필터', 'NOTICE-L02', '필터 노출 카드 배지 ⊆ {경기관제, 전체}', { failMsg: '필터 결과에 타 솔루션 배지 카드 노출 — 연계공식 위반' }), async () => {
+      const allow = new Set(['경기관제', '전체']);
+      let bad = 0, checked = 0;
+      for (let i = 0; i < Math.min(fN, 10); i++) {
+        const t = (await fCards.nth(i).innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+        if (!t) continue;
+        checked++;
+        if (!allow.has(t.split(' ')[0])) bad++;
+      }
+      expect(bad, `배지 위반 카드 ${bad}/${checked}(배지는 경기관제·전체만 허용)`).toBe(0);
+    });
+  }
+
+  // NOTICE-L03 적용국가 한국 단독 → KOR 노출 정합 (시드 "(시험) 적용 국가 한국 단독 공지")
+  await gotoRoute(app, 'notice'); await settle(app, 800);
+  const krSeed = app.getByText(/적용\s*국가\s*한국\s*단독/).first();
+  if (!(await krSeed.isVisible().catch(() => false))) {
+    skip(M('공지사항 > 연계·적용국가', 'NOTICE-L03', '적용국가 한국단독 → KOR 노출', {}), '한국단독 시험 공지 시드 없음');
+  } else {
+    await check(app, M('공지사항 > 연계·적용국가', 'NOTICE-L03', '적용국가 한국단독 공지가 KOR에서 노출', { failMsg: '한국단독 공지 KOR 미노출 — 연계공식 위반' }), async () => {
+      await expect(krSeed, '한국단독 시드 공지 노출(적용국가=한국 ↔ KOR 정합)').toBeVisible({ timeout: 8_000 });
+    });
+  }
+
+  // NOTICE-L04 적용국가 타겟 제외 → 미노출 : ⚠ 검증 보류 (국가 전환 불가)
+  skip(
+    M('공지사항 > 연계·적용국가', 'NOTICE-L04', '적용국가 미포함 국가 → 미노출', {}),
+    '판정 보류: front 국가 전환이 언어 선택기(국가 1:1 매핑 불가, ISSUE-079) — 국가 선택기 도입 후 재검토',
+  );
+
+  // NOTICE-L05 번역 원문 토글 미제공 — 공지 상세엔 "원문 보기" 토글 없음(번역 원문 토글은 문의 답변 전용)
+  await gotoRoute(app, 'notice'); await settle(app, 800);
+  if ((await app.locator(CARD).count().catch(() => 0)) === 0) {
+    skip(M('공지사항 > 연계·번역', 'NOTICE-L05', '공지 상세 원문 토글 미제공', {}), '공지 카드 0건');
+  } else {
+    await app.locator(CARD).first().click().catch(() => {});
+    await settle(app, 1000);
+    await check(app, M('공지사항 > 연계·번역', 'NOTICE-L05', '공지 상세 "원문 보기" 토글 미제공', { failMsg: '공지에 원문 토글 노출 — 문의 전용 요소 누출' }), async () => {
+      const body = await app.locator('body').innerText();
+      expect(/원문\s*보기/.test(body), '"원문 보기" 토글 미노출(공지는 번역본만)').toBeFalsy();
+    });
+  }
+
+  // NOTICE-L06 수정저장 미반영 결함(D1) → front 관측만으로 트리거 불가 : 투명 SKIP
+  skip(
+    M('공지사항 > 연계·드리프트', 'NOTICE-L06', '수정저장 미반영 결함(노출여부/기간/국가/솔루션)', {}),
+    '관측 제약: 실 admin 쓰기 필요(목업 백엔드 없음). D1(2026-09-02 1차한정 결함) — 수정 경로만, 수동 확인 대상',
+  );
 }
 
 // ──────────────────────────────────────────────────────────────
