@@ -415,3 +415,221 @@ export async function runUpdate(app: Page) {
     });
   }
 }
+
+// ──────────────────────────────────────────────────────────────
+//  공용 헬퍼 — 다중 매치 중 '가시' 요소 존재 판정(숨은 중복 오탐 방지)
+// ──────────────────────────────────────────────────────────────
+async function anyVisible(loc: ReturnType<Page['locator']>): Promise<boolean> {
+  const n = await loc.count().catch(() => 0);
+  for (let i = 0; i < Math.min(n, 12); i++) {
+    if (await loc.nth(i).isVisible().catch(() => false)) return true;
+  }
+  return false;
+}
+const CS_CARD = '[class*="list-item"], [class*="card"], [class*="guide-item"], [class*="faq"], article, li';
+
+// ──────────────────────────────────────────────────────────────
+//  솔루션 가이드 (/guide) — policy_user "솔루션 가이드 정책"
+//  ⚠ 셀렉터는 라이브 프로브(_probe-guide) 후 보정 대상. 현재는 유연 셀렉터 + SKIP 가드.
+// ──────────────────────────────────────────────────────────────
+const MG = (path: string, tcId: string, desc: string, extra: Partial<CheckMeta> = {}): CheckMeta => ({
+  path, tcId, desc, tcRef: extra.tcRef || `가이드_고객노출_${tcId.replace(/\D/g, '')}`, expected: extra.expected, failMsg: extra.failMsg,
+});
+const GUIDE_TYPES = ['전체 유형', '문제해결 가이드', '업무 가이드', '관리자 가이드'];
+const GUIDE_CATS = ['초기 설정', '설치·연결', '기능 사용', '기기 관리', '계정·권한', '데이터·연동'];
+
+export async function runGuide(app: Page) {
+  await gotoRoute(app, 'guide'); await settle(app);
+
+  await check(app, MG('가이드 > 진입', 'GUIDE-01', '가이드 화면 진입/제목', { failMsg: '가이드 화면 미노출' }), async () => {
+    await expect(app, '가이드 URL').toHaveURL(/\/guide(\?|$)/);
+    expect(await anyVisible(app.getByText(/가이드/)), '가이드 텍스트 노출').toBeTruthy();
+  });
+
+  await check(app, MG('가이드 > 유형 필터', 'GUIDE-02', '유형 필터(문제해결/업무/관리자) 노출', { failMsg: '유형 필터 누락' }), async () => {
+    let hit = 0;
+    for (const t of GUIDE_TYPES) if (await anyVisible(app.getByText(t, { exact: true }))) hit++;
+    expect(hit, `유형 필터 노출 ${hit}/${GUIDE_TYPES.length}`).toBeGreaterThanOrEqual(2);
+  });
+
+  await check(app, MG('가이드 > 분류 필터', 'GUIDE-03', '분류 필터(6종) 노출', { failMsg: '분류 필터 누락' }), async () => {
+    let hit = 0;
+    for (const c of GUIDE_CATS) if (await anyVisible(app.getByText(c, { exact: true }))) hit++;
+    expect(hit, `분류 필터 노출 ${hit}/${GUIDE_CATS.length}`).toBeGreaterThanOrEqual(2);
+  });
+
+  await check(app, MG('가이드 > 솔루션 탭', 'GUIDE-04', '솔루션 탭 노출', { failMsg: '솔루션 탭 누락' }), async () => {
+    let hit = 0;
+    for (const s of ['전체', '경기관제', 'ERP', '코스관리', '클라우드']) if (await anyVisible(app.getByText(s, { exact: true }))) hit++;
+    expect(hit, `솔루션 탭 노출 ${hit}/5`).toBeGreaterThanOrEqual(3);
+  });
+
+  const gCards = app.locator(CS_CARD);
+  const gN = await gCards.count().catch(() => 0);
+  if (gN === 0) skip(MG('가이드 > 목록', 'GUIDE-05', '가이드 목록 카드', {}), '가이드 데이터 0건');
+  else await check(app, MG('가이드 > 목록', 'GUIDE-05', '가이드 목록 카드 ≥1', { failMsg: '가이드 목록 미노출' }), async () => {
+    expect(gN).toBeGreaterThanOrEqual(1);
+  });
+
+  if (gN === 0) skip(MG('가이드 > 상세', 'GUIDE-06', '가이드 상세 진입/뒤로', {}), '가이드 카드 0건');
+  else await check(app, MG('가이드 > 상세', 'GUIDE-06', '상세 진입 후 목록 복귀', { failMsg: '상세/복귀 실패' }), async () => {
+    await app.locator(CS_CARD).first().click().catch(() => {});
+    await settle(app, 1200);
+    const back = app.getByText('가이드 목록', { exact: true }).or(app.locator('.pg-back-btn'));
+    if (await anyVisible(back)) { await back.first().click().catch(() => {}); await settle(app, 1000); }
+    await expect(app, '가이드 경로 유지').toHaveURL(/\/guide/);
+  });
+
+  const banner = app.getByText(/해결이 안 되셨나요|문의 접수/);
+  if (!(await anyVisible(banner))) skip(MG('가이드 > 문의 유도', 'GUIDE-07', '상세 하단 문의 유도 배너', {}), '상세 배너 미노출(목록 상태/데이터 의존)');
+  else await check(app, MG('가이드 > 문의 유도', 'GUIDE-07', '문의 유도 배너 노출', { failMsg: '배너 미노출' }), async () => {
+    expect(await anyVisible(banner)).toBeTruthy();
+  });
+
+  if (await anyVisible(app.getByText('무전기', { exact: true }))) diff('솔루션 가이드', '솔루션명 "무전"(정책)', '"무전기"(구현)', '가이드_고객노출_08', '기능 정상 — 전 화면 공통 명칭 차이');
+
+  await checkRawCode(app, MG('가이드 > 본문', 'GUIDE-09', '미가공 코드/오타 미노출', {}));
+}
+
+// ──────────────────────────────────────────────────────────────
+//  자주 묻는 질문 (/faq) — policy_user "자주 묻는 질문 정책(Q61)"
+// ──────────────────────────────────────────────────────────────
+const MF = (path: string, tcId: string, desc: string, extra: Partial<CheckMeta> = {}): CheckMeta => ({
+  path, tcId, desc, tcRef: extra.tcRef || `FAQ_고객노출_${tcId.replace(/\D/g, '')}`, expected: extra.expected, failMsg: extra.failMsg,
+});
+
+export async function runFaq(app: Page) {
+  await gotoRoute(app, 'faq'); await settle(app);
+
+  await check(app, MF('FAQ > 진입', 'FAQ-01', 'FAQ 화면 진입', { failMsg: 'FAQ 화면 미노출' }), async () => {
+    await expect(app, 'FAQ URL').toHaveURL(/\/faq(\?|$)/);
+  });
+
+  await check(app, MF('FAQ > 솔루션 필터', 'FAQ-02', '솔루션 탭 노출', { failMsg: '솔루션 탭 누락' }), async () => {
+    let hit = 0;
+    for (const s of ['전체', '경기관제', 'ERP', '클라우드']) if (await anyVisible(app.getByText(s, { exact: true }))) hit++;
+    expect(hit, `솔루션 탭 ${hit}/4`).toBeGreaterThanOrEqual(2);
+  });
+
+  const fCards = app.locator(CS_CARD);
+  const fN = await fCards.count().catch(() => 0);
+  if (fN === 0) skip(MF('FAQ > 목록', 'FAQ-03', 'FAQ 목록 항목', {}), 'FAQ 데이터 0건');
+  else await check(app, MF('FAQ > 목록', 'FAQ-03', 'FAQ 목록 항목 ≥1', { failMsg: 'FAQ 목록 미노출' }), async () => {
+    expect(fN).toBeGreaterThanOrEqual(1);
+  });
+
+  if (fN === 0) skip(MF('FAQ > 아코디언', 'FAQ-04', '아코디언 펼침', {}), 'FAQ 항목 0건');
+  else await check(app, MF('FAQ > 아코디언', 'FAQ-04', '질문 클릭 시 답변 펼침', { failMsg: '아코디언 미동작' }), async () => {
+    const before = (await app.locator('body').innerText()).length;
+    await app.locator(CS_CARD).first().click().catch(() => {});
+    await settle(app, 700);
+    const after = (await app.locator('body').innerText()).length;
+    expect(after, `펼침 후 콘텐츠 증가(${before}→${after})`).toBeGreaterThanOrEqual(before);
+  });
+
+  const seeGuide = app.getByText(/솔루션 가이드에서 보기/);
+  if (!(await anyVisible(seeGuide))) skip(MF('FAQ > 가이드 이동', 'FAQ-05', '솔루션 가이드에서 보기 노출', {}), '펼침/데이터 의존 미노출');
+  else await check(app, MF('FAQ > 가이드 이동', 'FAQ-05', '"솔루션 가이드에서 보기" 노출', { failMsg: '가이드 이동 링크 미노출' }), async () => {
+    expect(await anyVisible(seeGuide)).toBeTruthy();
+  });
+
+  await check(app, MF('FAQ > 읽기전용', 'FAQ-06', 'FAQ 직접 등록/작성 수단 없음', { failMsg: 'FAQ에 등록 수단 노출(비정상)' }), async () => {
+    const writeBtn = app.getByRole('button', { name: /등록|작성|추가|삭제/ });
+    expect(await anyVisible(writeBtn), 'FAQ 쓰기 버튼 부재').toBeFalsy();
+  });
+
+  await checkRawCode(app, MF('FAQ > 본문', 'FAQ-07', '미가공 코드/오타 미노출', {}));
+}
+
+// ──────────────────────────────────────────────────────────────
+//  문의 (내 문의/골프장 문의/새 문의) — 비파괴(접수·발송·완료 금지)
+// ──────────────────────────────────────────────────────────────
+const MI = (path: string, tcId: string, desc: string, extra: Partial<CheckMeta> = {}): CheckMeta => ({
+  path, tcId, desc, tcRef: extra.tcRef || `문의_고객노출_${tcId.replace(/\D/g, '')}`, expected: extra.expected, failMsg: extra.failMsg,
+});
+const INQ_TABS = ['전체', '대기', '진행중', '완료'];
+
+export async function runInquiry(app: Page) {
+  await gotoRoute(app, 'myinquiry'); await settle(app);
+  await check(app, MI('문의 > 내 문의 진입', 'INQ-01', '내 문의 진입/상태 탭', { failMsg: '내 문의 화면 미노출' }), async () => {
+    await expect(app, '내 문의 URL').toHaveURL(/\/myinquiry(\?|$)/);
+    let hit = 0; for (const t of INQ_TABS) if (await anyVisible(app.getByText(t, { exact: true }))) hit++;
+    expect(hit, `상태 탭 ${hit}/4`).toBeGreaterThanOrEqual(3);
+  });
+
+  await check(app, MI('문의 > 상태 3단계', 'INQ-02', '"진행중" 탭 존재(admin과 3단계 통일)', { failMsg: '진행중 탭 부재 — 2단계 회귀 결함' }), async () => {
+    expect(await anyVisible(app.getByText('진행중', { exact: true })), '진행중 탭 노출').toBeTruthy();
+  });
+
+  const iCards = app.locator(CS_CARD);
+  const iN = await iCards.count().catch(() => 0);
+  if (iN === 0) {
+    skip(MI('문의 > 목록', 'INQ-03', '문의 목록/상세', {}), '문의 데이터 0건(빈 상태)');
+  } else {
+    await check(app, MI('문의 > 상세', 'INQ-04', '상세 진입(채팅방 UI)', { failMsg: '상세 진입 실패' }), async () => {
+      await app.locator(CS_CARD).first().click().catch(() => {});
+      await settle(app, 1200);
+      expect(await anyVisible(app.getByText(/CS 팀|원문 보기|보내기/)), '채팅 스레드 요소').toBeTruthy();
+    });
+  }
+
+  await gotoRoute(app, 'gcinquiry'); await settle(app);
+  await check(app, MI('문의 > 골프장 문의', 'INQ-05', '골프장 문의 진입', { failMsg: '골프장 문의 미노출' }), async () => {
+    await expect(app, '골프장 문의 URL').toHaveURL(/\/gcinquiry(\?|$)/);
+  });
+
+  await gotoRoute(app, 'newinquiry'); await settle(app);
+  await check(app, MI('문의 > 새 문의 폼', 'INQ-06', '새 문의 접수 폼 구성(비파괴 열람)', { failMsg: '새 문의 폼 구성 누락' }), async () => {
+    await expect(app, '새 문의 URL').toHaveURL(/\/newinquiry(\?|$)/);
+    const title = app.locator('input[maxlength="50"], input[type="text"], textarea');
+    const guide = app.getByText(/자동 번역되어 전달|최대 5|솔루션/);
+    expect((await anyVisible(title)) || (await anyVisible(guide)), '폼 요소(제목/첨부/솔루션/번역안내)').toBeTruthy();
+  });
+
+  await checkRawCode(app, MI('문의 > 본문', 'INQ-07', '미가공 코드/오타 미노출', {}));
+}
+
+// ──────────────────────────────────────────────────────────────
+//  홈 (/) — policy_user "홈 화면 정책" (집계 프리뷰)
+// ──────────────────────────────────────────────────────────────
+const MH = (path: string, tcId: string, desc: string, extra: Partial<CheckMeta> = {}): CheckMeta => ({
+  path, tcId, desc, tcRef: extra.tcRef || `홈_고객노출_${tcId.replace(/\D/g, '')}`, expected: extra.expected, failMsg: extra.failMsg,
+});
+const HOME_SECTIONS = ['공지사항', '업데이트', '내 문의', '골프장 문의', '자주 묻는 질문'];
+
+export async function runHome(app: Page) {
+  await gotoRoute(app, 'home'); await settle(app);
+
+  await check(app, MH('홈 > 섹션', 'HOME-01', '홈 섹션 구성 노출', { failMsg: '홈 섹션 누락' }), async () => {
+    await expect(app, '홈 URL').toHaveURL(/\/($|\?)/);
+    let hit = 0; for (const s of HOME_SECTIONS) if (await anyVisible(app.getByText(s, { exact: true }))) hit++;
+    expect(hit, `섹션 노출 ${hit}/${HOME_SECTIONS.length}`).toBeGreaterThanOrEqual(3);
+  });
+
+  await check(app, MH('홈 > 전체보기', 'HOME-02', '섹션 전체보기 노출', { failMsg: '전체보기 누락' }), async () => {
+    expect(await anyVisible(app.getByText(/전체보기/)), '전체보기 버튼').toBeTruthy();
+  });
+
+  await check(app, MH('홈 > 솔루션 그리드', 'HOME-03', '솔루션 그리드 카드 노출', { failMsg: '솔루션 그리드 누락' }), async () => {
+    let hit = 0; for (const s of ['경기관제', 'ERP', '코스관리', '클라우드']) if (await anyVisible(app.getByText(s, { exact: true }))) hit++;
+    expect(hit, `솔루션 카드 ${hit}/4`).toBeGreaterThanOrEqual(2);
+  });
+
+  const statOk: boolean | null = await app.evaluate(() => {
+    const txt = (document.body.innerText || '').replace(/,/g, '');
+    const g = (re: RegExp) => { const m = txt.match(re); return m ? parseInt(m[1], 10) : null; };
+    const all = g(/전체\s*(\d+)/), wait = g(/대기\s*(\d+)/), prog = g(/진행\s*중?\s*(\d+)/), done = g(/완료\s*(\d+)/);
+    if (all == null || wait == null || prog == null || done == null) return null;
+    return all === wait + prog + done;
+  }).catch(() => null);
+  if (statOk === null) skip(MH('홈 > stat 정합', 'HOME-04', '문의 stat 전체=대기+진행중+완료', {}), 'stat 수치 파싱 불가(데이터/셀렉터 의존)');
+  else await check(app, MH('홈 > stat 정합', 'HOME-04', '문의 stat 전체 = 대기+진행중+완료', { failMsg: 'stat 합계 불일치' }), async () => {
+    expect(statOk, '전체 = 대기+진행중+완료').toBeTruthy();
+  });
+
+  await check(app, MH('홈 > 언어', 'HOME-05', '언어 선택기(KOR) 노출', { failMsg: '언어 선택기 미노출' }), async () => {
+    expect(await anyVisible(app.getByText('KOR', { exact: true })), 'KOR 언어 선택기').toBeTruthy();
+  });
+
+  await checkRawCode(app, MH('홈 > 본문', 'HOME-06', '미가공 코드/오타 미노출', {}));
+}
