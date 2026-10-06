@@ -151,4 +151,5 @@ async function main() {
   await wb.xlsx.writeFile(out);
   console.log('생성 완료:', out, '| 데이터 행:', R.length);
 }
-main();
+module.exports = R;
+if (require.main === module) main();
